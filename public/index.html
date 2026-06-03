@@ -3,11 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TaskFlow</title>
+    <title>TaskFlow &mdash; Plan work without losing the thread</title>
     <link rel="stylesheet" href="/styles.css" />
-  </head> 
+  </head>
   <body>
     <main class="app-shell">
+      <!-- Auth Section -->
       <section class="auth-view" id="authView">
         <div class="auth-panel">
           <div>
@@ -15,7 +16,7 @@
             <h1>Plan work without losing the thread.</h1>
             <p class="intro">
               Sign in to create, update, filter, and track tasks across your
-              own workspace.
+              own workspace in real-time.
             </p>
           </div>
 
@@ -31,7 +32,7 @@
 
             <label class="field register-only" for="nameInput">
               <span>Name</span>
-              <input id="nameInput" name="name" autocomplete="name" />
+              <input id="nameInput" name="name" placeholder="John Doe" autocomplete="name" />
             </label>
 
             <label class="field" for="emailInput">
@@ -40,6 +41,7 @@
                 id="emailInput"
                 name="email"
                 type="email"
+                placeholder="you@example.com"
                 autocomplete="email"
                 required
               />
@@ -51,6 +53,7 @@
                 id="passwordInput"
                 name="password"
                 type="password"
+                placeholder="••••••••"
                 autocomplete="current-password"
                 required
                 minlength="8"
@@ -65,14 +68,24 @@
         </div>
       </section>
 
+      <!-- Workspace Dashboard -->
       <section class="workspace is-hidden" id="workspaceView">
         <header class="topbar">
           <div>
-            <p class="eyebrow">TaskFlow</p>
+            <p class="eyebrow">TaskFlow Workspace</p>
             <h1>Tasks</h1>
           </div>
           <div class="topbar-actions">
-            <span class="user-pill" id="userLabel"></span>
+            <!-- Theme Toggle -->
+            <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme">
+              🌓
+            </button>
+            <!-- User Pill with Connection Sync State -->
+            <span class="user-pill" id="userLabel">
+              <span class="sync-indicator active" id="syncIndicator"></span>
+              <span id="userPillText">Loading...</span>
+            </span>
+            <!-- Logout Button -->
             <button class="icon-button" id="logoutButton" type="button" title="Sign out">
               <span aria-hidden="true">↪</span>
               <span class="sr-only">Sign out</span>
@@ -81,23 +94,24 @@
         </header>
 
         <section class="dashboard-grid">
+          <!-- Task Form Sidebar -->
           <aside class="task-editor">
             <div class="panel-heading">
               <h2 id="editorTitle">New task</h2>
               <button class="ghost-button is-hidden" id="cancelEditButton" type="button">
-                Cancel edit
+                Cancel
               </button>
             </div>
 
             <form id="taskForm" class="task-form">
               <label class="field" for="taskTitle">
                 <span>Title</span>
-                <input id="taskTitle" name="title" maxlength="120" required />
+                <input id="taskTitle" name="title" maxlength="120" placeholder="Task name..." required />
               </label>
 
               <label class="field" for="taskDescription">
                 <span>Description</span>
-                <textarea id="taskDescription" name="description" rows="5"></textarea>
+                <textarea id="taskDescription" name="description" placeholder="Describe the task details..." rows="5"></textarea>
               </label>
 
               <div class="field-row">
@@ -132,36 +146,54 @@
             </form>
           </aside>
 
+          <!-- Task Board Main Panel -->
           <section class="task-board">
+            <!-- Count Summary cards -->
             <div class="summary-strip" id="summaryStrip"></div>
 
+            <!-- Filters & Views Control -->
             <div class="filters">
-              <div class="segmented-control" aria-label="Task status filter">
-                <button class="segment is-active" type="button" data-filter="all">
-                  All
-                </button>
-                <button class="segment" type="button" data-filter="todo">
-                  To do
-                </button>
-                <button class="segment" type="button" data-filter="in-progress">
-                  In progress
-                </button>
-                <button class="segment" type="button" data-filter="done">
-                  Done
-                </button>
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <!-- Status Filter -->
+                <div class="segmented-control" aria-label="Task status filter">
+                  <button class="segment is-active" type="button" data-filter="all">All</button>
+                  <button class="segment" type="button" data-filter="todo">To do</button>
+                  <button class="segment" type="button" data-filter="in-progress">In progress</button>
+                  <button class="segment" type="button" data-filter="done">Done</button>
+                </div>
+
+                <!-- Kanban vs List layout toggle -->
+                <div class="segmented-control" aria-label="Layout toggle">
+                  <button class="segment is-active" type="button" data-layout="kanban">Kanban</button>
+                  <button class="segment" type="button" data-layout="list">List</button>
+                </div>
               </div>
 
+              <!-- Search input -->
               <label class="search-field" for="taskSearch">
                 <span class="sr-only">Search tasks</span>
-                <input id="taskSearch" placeholder="Search tasks" />
+                <input id="taskSearch" placeholder="🔍 Search tasks..." />
               </label>
             </div>
 
-            <div class="task-list" id="taskList"></div>
+            <!-- Task Grid / Column list -->
+            <div class="task-list kanban-mode" id="taskList"></div>
           </section>
         </section>
       </section>
     </main>
+
+    <!-- Custom styled confirm modal dialog -->
+    <div class="modal-overlay is-hidden" id="confirmModal">
+      <div class="modal-content">
+        <h3 class="modal-title" id="confirmTitle">Delete task?</h3>
+        <p class="modal-body" id="confirmMessage">This action cannot be undone. Are you sure you want to delete this task?</p>
+        <div class="modal-footer">
+          <button class="ghost-button" id="confirmCancel">Cancel</button>
+          <button class="danger-button" id="confirmConfirm">Delete</button>
+        </div>
+      </div>
+    </div>
 
     <script src="/app.js" type="module"></script>
   </body>
