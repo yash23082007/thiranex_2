@@ -5,7 +5,8 @@ const state = {
   search: "",
   authMode: "login",
   editingTaskId: null,
-  stream: null
+  stream: null,
+  layout: localStorage.getItem("layout") || "kanban"
 };
 
 const els = {
@@ -20,7 +21,10 @@ const els = {
   emailInput: document.querySelector("#emailInput"),
   passwordInput: document.querySelector("#passwordInput"),
   userLabel: document.querySelector("#userLabel"),
+  userPillText: document.querySelector("#userPillText"),
+  syncIndicator: document.querySelector("#syncIndicator"),
   logoutButton: document.querySelector("#logoutButton"),
+  themeToggle: document.querySelector("#themeToggle"),
   taskForm: document.querySelector("#taskForm"),
   taskSubmit: document.querySelector("#taskSubmit"),
   taskError: document.querySelector("#taskError"),
@@ -33,6 +37,7 @@ const els = {
   cancelEditButton: document.querySelector("#cancelEditButton"),
   summaryStrip: document.querySelector("#summaryStrip"),
   filterButtons: document.querySelectorAll("[data-filter]"),
+  layoutButtons: document.querySelectorAll("[data-layout]"),
   taskSearch: document.querySelector("#taskSearch"),
   taskList: document.querySelector("#taskList")
 };
@@ -78,11 +83,11 @@ function setSession(user) {
   els.workspaceView.classList.toggle("is-hidden", !user);
 
   if (user) {
-    els.userLabel.textContent = `${user.name} · ${user.email}`;
+    els.userPillText.textContent = `${user.name} · ${user.email}`;
     loadTasks();
     connectTaskStream();
   } else {
-    els.userLabel.textContent = "";
+    els.userPillText.textContent = "Offline";
     state.tasks = [];
     closeTaskStream();
     renderTasks();
@@ -107,9 +112,17 @@ function connectTaskStream() {
     const payload = JSON.parse(event.data);
     state.tasks = payload.tasks;
     renderTasks();
+    if (els.syncIndicator) {
+      els.syncIndicator.classList.add("active");
+      els.syncIndicator.title = "Real-time updates active";
+    }
   });
   state.stream.onerror = () => {
     closeTaskStream();
+    if (els.syncIndicator) {
+      els.syncIndicator.classList.remove("active");
+      els.syncIndicator.title = "Reconnecting...";
+    }
     setTimeout(() => {
       if (state.user) connectTaskStream();
     }, 1800);
@@ -164,10 +177,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function getFilteredTasks() {
+function getFilteredTasks(ignoreStatus = false) {
   const search = state.search.trim().toLowerCase();
   return state.tasks.filter((task) => {
-    const matchesFilter = state.filter === "all" || task.status === state.filter;
+    const matchesFilter = ignoreStatus || state.filter === "all" || task.status === state.filter;
     const matchesSearch =
       !search ||
       task.title.toLowerCase().includes(search) ||
@@ -197,61 +210,116 @@ function renderSummary() {
     .join("");
 }
 
+function generateTaskCardHtml(task) {
+  const isOverdue = task.dueDate && task.status !== "done" && new Date(`${task.dueDate}T23:59:59`) < new Date();
+  const dateClass = isOverdue ? "due-date-display overdue" : "due-date-display";
+  const dateLabel = isOverdue ? `⚠️ Overdue: ${formatDate(task.dueDate)}` : formatDate(task.dueDate);
+
+  return `
+    <article class="task-card priority-${task.priority}" data-task-id="${task.id}">
+      <div class="task-card-header">
+        <div style="flex: 1; min-width: 0;">
+          <h3 class="task-title" style="word-wrap: break-word;">${escapeHtml(task.title)}</h3>
+          <p class="task-description">${
+            task.description
+              ? escapeHtml(task.description)
+              : '<span class="muted" style="font-style: italic;">No description</span>'
+          }</p>
+        </div>
+        <span class="badge badge-priority-${task.priority}">
+          ${humanizePriority(task.priority)}
+        </span>
+      </div>
+
+      <div class="task-meta">
+        <span class="badge badge-status-${task.status}">
+          ${humanizeStatus(task.status)}
+        </span>
+        <span class="${dateClass}">${dateLabel}</span>
+      </div>
+
+      <div class="task-actions">
+        <button class="ghost-button" type="button" data-action="edit">Edit</button>
+        <button class="ghost-button" type="button" data-action="next-status">
+          ${task.status === "done" ? "Reopen" : "Advance"}
+        </button>
+        <button class="danger-button" type="button" data-action="delete">
+          Delete
+        </button>
+      </div>
+    </article>
+  `;
+}
+
 function renderTasks() {
   renderSummary();
 
-  const tasks = getFilteredTasks();
-  if (tasks.length === 0) {
-    els.taskList.innerHTML = `
-      <div class="empty-state">
-        ${
-          state.tasks.length === 0
-            ? "Create your first task to get moving."
-            : "No tasks match the current view."
-        }
-      </div>
-    `;
-    return;
-  }
+  const isKanban = state.layout === "kanban";
+  els.taskList.classList.toggle("kanban-mode", isKanban);
 
-  els.taskList.innerHTML = tasks
-    .map(
-      (task) => `
-        <article class="task-card" data-task-id="${task.id}">
-          <div class="task-card-header">
-            <div>
-              <h3 class="task-title">${escapeHtml(task.title)}</h3>
-              <p class="task-description">${
-                task.description
-                  ? escapeHtml(task.description)
-                  : '<span class="muted">No description</span>'
-              }</p>
+  if (isKanban) {
+    const tasks = getFilteredTasks(true);
+    const columns = {
+      todo: [],
+      "in-progress": [],
+      done: []
+    };
+
+    tasks.forEach((task) => {
+      if (columns[task.status]) {
+        columns[task.status].push(task);
+      }
+    });
+
+    const colTitles = {
+      todo: "To do",
+      "in-progress": "In progress",
+      done: "Done"
+    };
+
+    els.taskList.innerHTML = Object.entries(columns)
+      .map(([status, colTasks]) => {
+        const cardsHtml = colTasks.length > 0
+          ? colTasks.map(generateTaskCardHtml).join("")
+          : `<div class="empty-state" style="min-height: 120px; padding: 24px;">
+               <div class="empty-state-icon" style="font-size: 1.5rem;">✨</div>
+               <div style="font-size: 0.85rem;">No tasks</div>
+             </div>`;
+
+        return `
+          <div class="kanban-column" data-column-status="${status}">
+            <div class="kanban-column-header">
+              <span class="kanban-column-title">
+                ${colTitles[status]}
+              </span>
+              <span class="kanban-column-count">${colTasks.length}</span>
             </div>
-            <span class="badge badge-priority-${task.priority}">
-              ${humanizePriority(task.priority)}
-            </span>
+            ${cardsHtml}
           </div>
+        `;
+      })
+      .join("");
+  } else {
+    const tasks = getFilteredTasks(false);
 
-          <div class="task-meta">
-            <span class="badge badge-status-${task.status}">
-              ${humanizeStatus(task.status)}
-            </span>
-            <span class="muted">${formatDate(task.dueDate)}</span>
+    if (tasks.length === 0) {
+      els.taskList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📝</div>
+          <div>
+            ${
+              state.tasks.length === 0
+                ? "Create your first task to get moving."
+                : "No tasks match the current view."
+            }
           </div>
+        </div>
+      `;
+      return;
+    }
 
-          <div class="task-actions">
-            <button class="ghost-button" type="button" data-action="edit">Edit</button>
-            <button class="ghost-button" type="button" data-action="next-status">
-              ${task.status === "done" ? "Reopen" : "Advance"}
-            </button>
-            <button class="danger-button" type="button" data-action="delete">
-              Delete
-            </button>
-          </div>
-        </article>
-      `
-    )
-    .join("");
+    els.taskList.innerHTML = tasks.map(generateTaskCardHtml).join("");
+  }
 }
 
 function resetTaskForm() {
@@ -295,6 +363,34 @@ function nextStatus(status) {
   return "todo";
 }
 
+function showConfirm(title, message) {
+  return new Promise((resolve) => {
+    const modal = document.querySelector("#confirmModal");
+    const titleEl = document.querySelector("#confirmTitle");
+    const messageEl = document.querySelector("#confirmMessage");
+    const cancelBtn = document.querySelector("#confirmCancel");
+    const confirmBtn = document.querySelector("#confirmConfirm");
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    modal.classList.remove("is-hidden");
+
+    const cleanUp = (result) => {
+      modal.classList.add("is-hidden");
+      cancelBtn.removeEventListener("click", onCancel);
+      confirmBtn.removeEventListener("click", onConfirm);
+      resolve(result);
+    };
+
+    function onCancel() { cleanUp(false); }
+    function onConfirm() { cleanUp(true); }
+
+    cancelBtn.addEventListener("click", onCancel);
+    confirmBtn.addEventListener("click", onConfirm);
+  });
+}
+
+// Event Listeners
 els.authModeButtons.forEach((button) => {
   button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
 });
@@ -331,6 +427,8 @@ els.authForm.addEventListener("submit", async (event) => {
 });
 
 els.logoutButton.addEventListener("click", async () => {
+  const confirmed = await showConfirm("Sign out?", "Are you sure you want to sign out of TaskFlow?");
+  if (!confirmed) return;
   await api("/api/auth/logout", { method: "POST" });
   setSession(null);
 });
@@ -367,6 +465,17 @@ els.filterButtons.forEach((button) => {
   });
 });
 
+els.layoutButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    state.layout = button.dataset.layout;
+    localStorage.setItem("layout", state.layout);
+    els.layoutButtons.forEach((btn) => {
+      btn.classList.toggle("is-active", btn === button);
+    });
+    renderTasks();
+  });
+});
+
 els.taskSearch.addEventListener("input", (event) => {
   state.search = event.target.value;
   renderTasks();
@@ -389,9 +498,15 @@ els.taskList.addEventListener("click", async (event) => {
 
   try {
     if (button.dataset.action === "delete") {
-      await api(`/api/tasks/${task.id}`, { method: "DELETE" });
-      if (state.editingTaskId === task.id) resetTaskForm();
-      await loadTasks();
+      const confirmed = await showConfirm(
+        "Delete Task?",
+        `Are you sure you want to permanently delete the task "${task.title}"?`
+      );
+      if (confirmed) {
+        await api(`/api/tasks/${task.id}`, { method: "DELETE" });
+        if (state.editingTaskId === task.id) resetTaskForm();
+        await loadTasks();
+      }
       return;
     }
 
@@ -407,6 +522,29 @@ els.taskList.addEventListener("click", async (event) => {
   } finally {
     button.disabled = false;
   }
+});
+
+// Theme toggle logic
+if (els.themeToggle) {
+  const savedTheme = localStorage.getItem("theme") || "light";
+  if (savedTheme === "dark") {
+    document.body.classList.add("dark-theme");
+    els.themeToggle.textContent = "☀️";
+  } else {
+    document.body.classList.remove("dark-theme");
+    els.themeToggle.textContent = "🌙";
+  }
+
+  els.themeToggle.addEventListener("click", () => {
+    const isDark = document.body.classList.toggle("dark-theme");
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+    els.themeToggle.textContent = isDark ? "☀️" : "🌙";
+  });
+}
+
+// Initial active segment setup
+els.layoutButtons.forEach((btn) => {
+  btn.classList.toggle("is-active", btn.dataset.layout === state.layout);
 });
 
 setAuthMode("login");
